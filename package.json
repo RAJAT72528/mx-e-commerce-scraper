@@ -16,13 +16,13 @@
   "license": "ISC",
   "description": "A web scraper built with TypeScript",
   "devDependencies": {
+    "@types/inquirer": "^8.2.10",
     "@types/node": "^20.11.25",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@types/inquirer": "^9.0.7",
-    "inquirer": "^12.5.0",
-    "playwright": "^1.51.1"
+    "inquirer": "^8.2.6",
+    "playwright": "^1.43.1"
   }
 }
