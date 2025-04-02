@@ -1,0 +1,20 @@
+{
+  "name": "mx-scrapper-assignment",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["scraper", "typescript"],
+  "author": "",
+  "license": "ISC",
+  "description": "A web scraper built with TypeScript",
+  "devDependencies": {
+    "@types/node": "^20.11.25",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
