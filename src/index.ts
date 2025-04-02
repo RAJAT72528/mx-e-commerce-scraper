@@ -90,21 +90,71 @@ async function handleLogin(): Promise<{ success: boolean; page: any } | null> {
         return null;
       }
       
-      // Enter username
-      const usernameEntered = await enterUsername(page, credentials.username);
+      // Enter username with retry logic
+      let usernameEntered = false;
+      let usernameAttempts = 3; // Allow multiple attempts for username entry
+      
+      while (!usernameEntered && usernameAttempts > 0) {
+        try {
+          usernameEntered = await enterUsername(page, credentials.username);
+          if (!usernameEntered) {
+            console.error('Error entering username. Please try again.');
+            usernameAttempts--;
+            
+            // If we've had trouble with the username entry, try reloading the page
+            if (usernameAttempts > 0) {
+              console.log("Reloading login page to try again...");
+              await navigateToAmazonLogin(page);
+              await page.waitForTimeout(3000); // Short wait for page load
+            }
+          }
+        } catch (error) {
+          console.error('Exception during username entry:', error);
+          usernameAttempts--;
+          
+          // Try reloading the page on error
+          if (usernameAttempts > 0) {
+            console.log("Reloading login page after error...");
+            await navigateToAmazonLogin(page);
+            await page.waitForTimeout(3000); // Short wait for page load
+          }
+        }
+      }
+      
       if (!usernameEntered) {
-        console.error('Error entering username. Please try again.');
+        console.error('Failed to enter username after multiple attempts');
         attemptsLeft--;
         continue;
       }
       
-      // Enter password
-      const passwordEntered = await enterPassword(page, credentials.password);
+      // Enter password with retry logic
+      let passwordEntered = false;
+      let passwordAttempts = 3; // Allow multiple attempts for password entry
+      
+      while (!passwordEntered && passwordAttempts > 0) {
+        try {
+          passwordEntered = await enterPassword(page, credentials.password);
+          if (!passwordEntered) {
+            console.error('Error entering password. Please try again.');
+            passwordAttempts--;
+          }
+        } catch (error) {
+          console.error('Exception during password entry:', error);
+          passwordAttempts--;
+        }
+      }
+      
       if (!passwordEntered) {
-        console.error('Error entering password. Please try again.');
+        console.error('Failed to enter password after multiple attempts');
         attemptsLeft--;
+        
+        // Reload the page for the next attempt
+        await navigateToAmazonLogin(page);
         continue;
       }
+      
+      // Wait a moment for the page to settle
+      await page.waitForTimeout(3000);
       
       // Check if credentials were invalid
       const invalidCredentials = await checkInvalidCredentials(page);
@@ -145,7 +195,17 @@ async function handleLogin(): Promise<{ success: boolean; page: any } | null> {
         }
       }
       
+      // Final check to make sure we're actually logged in
+      const stillOnLoginPages = await page.isVisible('#ap_password, #ap_email, .auth-workflow, .a-box-inner:has-text("Sign-In")');
+      if (stillOnLoginPages) {
+        console.error('Still on login page after all steps. Login failed.');
+        attemptsLeft--;
+        await navigateToAmazonLogin(page);
+        continue;
+      }
+      
       // If we reach here, login was successful
+      console.log('Login successful!');
       loginSuccessful = true;
     }
     

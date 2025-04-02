@@ -94,27 +94,91 @@ export async function enterUsername(page: Page, username: string): Promise<boole
       if (!captchaSolved) {
         return false;
       }
+    }
+    
+    // Check the current state of the login form
+    console.log("Checking current state of login form...");
+    
+    // First, check if we're already on the password page with the same username
+    const hiddenEmailField = await page.$('#ap_email[type="hidden"]');
+    if (hiddenEmailField) {
+      const currentValue = await hiddenEmailField.getAttribute('value');
+      console.log(`Found hidden email field with value: ${currentValue}`);
       
-      // After CAPTCHA is solved, we might already be at password page
-      // Check if we need to enter username
-      const needUsername = await page.isVisible('#ap_email', { timeout: 3000 });
-      if (!needUsername) {
-        return true; // Already passed username page
+      // If we're already showing the password page with the same username, just proceed
+      if (currentValue === username || `+91${username}` === currentValue) {
+        console.log("Already on password page with correct username");
+        return true;
+      }
+      
+      // If we need to use a different username, look for a change link
+      console.log("Need to change username. Looking for change link...");
+      
+      // Try various change link selectors
+      const changeSelectors = [
+        'a:has-text("Change")',
+        '#ap_change_login_claim',
+        '.a-link-normal:has-text("Change")',
+        '.a-link-normal[role="button"]'
+      ];
+      
+      let changeClicked = false;
+      for (const selector of changeSelectors) {
+        try {
+          const isVisible = await page.isVisible(selector, { timeout: 5000 });
+          if (isVisible) {
+            await page.click(selector);
+            console.log(`Clicked change link with selector: ${selector}`);
+            changeClicked = true;
+            
+            // Wait for the email field to appear after clicking change
+            await page.waitForSelector('#ap_email:not([type="hidden"])', { timeout: 30000 });
+            break;
+          }
+        } catch (error) {
+          // Continue to the next selector
+          console.warn(`Change selector ${selector} not found or failed`);
+        }
+      }
+      
+      if (!changeClicked) {
+        // If we can't find a change link, try reloading the page completely
+        console.log("Couldn't find change link, reloading login page...");
+        await navigateToAmazonLogin(page);
+        await page.waitForSelector('#ap_email:not([type="hidden"])', { timeout: 30000 });
       }
     }
     
-    // Wait for the email field to be available
-    await page.waitForSelector('#ap_email', { timeout: 10000 });
+    // Wait for the visible email field (not hidden)
+    const emailField = await page.waitForSelector('#ap_email:not([type="hidden"]), input[name="email"]:not([type="hidden"])', { 
+      timeout: 30000, // Increased timeout to 30 seconds
+      state: 'visible'
+    });
+    
+    if (!emailField) {
+      console.error('Could not find visible email input field');
+      return false;
+    }
+    
+    // Make sure the field is empty before typing
+    await page.evaluate(() => {
+      const input = document.querySelector('#ap_email') as HTMLInputElement;
+      if (input) input.value = '';
+    });
     
     // Fill in the username
     await page.fill('#ap_email', username);
+    console.log(`Entered username: ${username}`);
     
     // Click the continue button
     await page.click('#continue');
+    console.log('Clicked continue button');
     
     // Wait for either password field or an error
     try {
-      await page.waitForSelector('#ap_password, .a-alert-content', { timeout: 5000 });
+      await page.waitForSelector('#ap_password, .a-alert-content', { 
+        timeout: 30000 // Increased timeout to 30 seconds
+      });
       
       // Check if there was an error with the username
       const hasError = await page.isVisible('.a-alert-content');
@@ -124,6 +188,7 @@ export async function enterUsername(page: Page, username: string): Promise<boole
         return false;
       }
       
+      console.log('Successfully proceeded to password page');
       return true;
     } catch (error) {
       console.error('Timeout waiting for password field or error message:', error);
@@ -143,9 +208,12 @@ export async function enterUsername(page: Page, username: string): Promise<boole
  */
 export async function enterPassword(page: Page, password: string): Promise<boolean> {
   try {
+    console.log("Attempting to enter password...");
+    
     // Check if we need to handle CAPTCHA
     const hasCaptcha = await checkForCaptcha(page);
     if (hasCaptcha) {
+      console.log("CAPTCHA detected before password entry");
       const captchaSolved = await handleCaptcha(page);
       if (!captchaSolved) {
         return false;
@@ -153,10 +221,15 @@ export async function enterPassword(page: Page, password: string): Promise<boole
     }
     
     // Wait for password field with a longer timeout
-    await page.waitForSelector('#ap_password', { timeout: 10000 });
+    console.log("Waiting for password field...");
+    await page.waitForSelector('#ap_password', { 
+      timeout: 30000, // Increased timeout to 30 seconds
+      state: 'visible'
+    });
     
     // Fill password field
     await page.fill('#ap_password', password);
+    console.log("Password entered");
     
     // Check for "Keep me signed in" checkbox and ensure it's unchecked
     // This ensures more consistent behavior across sessions
@@ -167,6 +240,7 @@ export async function enterPassword(page: Page, password: string): Promise<boole
         const isChecked = await page.$eval(rememberMeSelector, el => (el as HTMLInputElement).checked);
         if (isChecked) {
           await page.click(rememberMeSelector);
+          console.log("Unchecked 'Keep me signed in'");
         }
       }
     } catch (error) {
@@ -175,22 +249,25 @@ export async function enterPassword(page: Page, password: string): Promise<boole
     }
     
     // Click sign-in button
+    console.log("Clicking sign-in button...");
     await page.click('#signInSubmit');
     
     // Wait for navigation to complete
+    console.log("Waiting for navigation after sign-in...");
     await page.waitForNavigation({ 
       waitUntil: 'networkidle',
-      timeout: 30000 // Longer timeout for potential slow connections
+      timeout: 45000 // Increased timeout to 45 seconds for slower connections
     });
     
     // Check for various outcomes after login attempt
-    const errorVisible = await page.isVisible('.a-alert-content, .a-box-inner .a-alert-container', { timeout: 3000 });
+    const errorVisible = await page.isVisible('.a-alert-content, .a-box-inner .a-alert-container', { timeout: 5000 });
     if (errorVisible) {
       const errorText = await page.textContent('.a-alert-content, .a-box-inner .a-alert-container') || '';
       console.error(`Login error: ${errorText.trim()}`);
       return false;
     }
     
+    console.log("Successfully signed in");
     return true;
   } catch (error) {
     console.error('Error entering password:', error);
@@ -205,6 +282,8 @@ export async function enterPassword(page: Page, password: string): Promise<boole
  */
 export async function checkInvalidCredentials(page: Page): Promise<boolean> {
   try {
+    console.log("Checking for invalid credentials...");
+    
     // Check for various error selectors and messages
     const errorSelectors = [
       '.a-alert-heading',
@@ -212,15 +291,18 @@ export async function checkInvalidCredentials(page: Page): Promise<boolean> {
       '.a-alert-content',
       '#auth-error-message-box',
       '.auth-error-message-box',
-      '#auth-warning-message-box'
+      '#auth-warning-message-box',
+      '.a-box-inner h4:has-text("Problem")',
+      '.a-box-inner h4:has-text("There was a problem")'
     ];
     
     // Check each selector for visibility
     for (const selector of errorSelectors) {
-      const isVisible = await page.isVisible(selector, { timeout: 1000 });
+      const isVisible = await page.isVisible(selector, { timeout: 3000 });
       if (isVisible) {
         const errorText = await page.textContent(selector) || '';
         const errorLower = errorText.toLowerCase();
+        console.log(`Found error message: "${errorText.trim()}"`);
         
         // Check for common error keywords
         const errorKeywords = [
@@ -231,7 +313,10 @@ export async function checkInvalidCredentials(page: Page): Promise<boolean> {
           'error',
           'not recognized',
           'failed',
-          'couldn\'t find'
+          'couldn\'t find',
+          'doesn\'t match',
+          'we cannot find an account',
+          'no account found'
         ];
         
         // If any error keywords are found, consider credentials invalid
@@ -242,15 +327,38 @@ export async function checkInvalidCredentials(page: Page): Promise<boolean> {
       }
     }
     
-    // Check if we're still on login page when we should have navigated away
-    const stillOnLoginPage = await page.isVisible('#ap_password, #ap_email', { timeout: 1000 });
-    const isOnHomePage = await page.isVisible('#nav-logo-sprites, #nav-belt', { timeout: 1000 });
+    // Additional check for password mismatch errors which might have different selectors
+    try {
+      const passwordErrors = await page.$$eval('.a-list-item', elements => 
+        elements
+          .filter(el => 
+            el.textContent?.toLowerCase().includes('password') && 
+            (el.textContent?.toLowerCase().includes('incorrect') || 
+             el.textContent?.toLowerCase().includes('wrong'))
+          )
+          .map(el => el.textContent)
+      );
+      
+      if (passwordErrors.length > 0) {
+        console.error(`Password error detected: ${passwordErrors[0]}`);
+        return true;
+      }
+    } catch (err) {
+      // Non-critical, continue with other checks
+    }
     
-    if (stillOnLoginPage && !isOnHomePage) {
+    // Check if we're still on login page when we should have navigated away
+    // But only if we're not in the middle of the login process (password screen is ok)
+    const passwordScreenVisible = await page.isVisible('#ap_password', { timeout: 2000 });
+    const emailScreenVisible = await page.isVisible('#ap_email:not([type="hidden"])', { timeout: 2000 });
+    const isOnHomePage = await page.isVisible('#nav-logo-sprites, #nav-belt, #nav-main', { timeout: 2000 });
+    
+    if ((emailScreenVisible || (!passwordScreenVisible && !isOnHomePage))) {
       console.error('Still on login page - possible invalid credentials');
       return true;
     }
     
+    console.log("No credential errors detected");
     return false;
   } catch (error) {
     // If selector not found or other error, assume no error for safety
