@@ -1,13 +1,14 @@
 /**
  * Validators for user input
  */
+import { ValidationResult } from './types';
 
 /**
  * Validates if the input is a valid email or phone number
  * @param input User input for validation
  * @returns Object with validation result and type
  */
-export function validateCredentials(input: string): { isValid: boolean; type: 'email' | 'phone' | 'unknown' } {
+export function validateCredentials(input: string): ValidationResult {
   // Check if input is an email (contains @ and .com)
   if (input.includes('@') && input.includes('.com')) {
     return { isValid: true, type: 'email' };

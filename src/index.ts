@@ -8,18 +8,18 @@ import {
   navigateToAmazonLogin,
   enterUsername,
   enterPassword,
-  checkInvalidCredentials,
   isMFARequired,
   submitMFACode,
   navigateToOrderHistory,
   selectOrderYear,
   extractOrders,
-  OrderItem,
   Order,
-  ScraperError
+  LoginResult,
+  Credentials,
+  Page
 } from './utils/scraper';
 
-async function promptForCredentials(attemptsLeft = 5): Promise<{ username: string; password: string } | null> {
+async function promptForCredentials(attemptsLeft = 5): Promise<Credentials | null> {
   if (attemptsLeft <= 0) {
     console.error('Maximum attempts reached. Exiting...');
     return null;
@@ -31,7 +31,7 @@ async function promptForCredentials(attemptsLeft = 5): Promise<{ username: strin
       name: 'username',
       message: 'Enter your Amazon.in email or phone number:',
       validate: (input) => {
-        const { isValid, type } = validateCredentials(input);
+        const { isValid } = validateCredentials(input);
         if (isValid) return true;
         return 'Please enter a valid email (with @.com) or a 10-digit phone number.';
       }
@@ -99,7 +99,7 @@ async function promptForPassword(): Promise<string | null> {
   }
 }
 
-async function handleLogin(): Promise<{ success: boolean; page: any } | null> {
+async function handleLogin(): Promise<LoginResult | null> {
   // Initialize browser
   const { browser, page } = await initBrowser();
   
@@ -238,7 +238,7 @@ async function handleLogin(): Promise<{ success: boolean; page: any } | null> {
   }
 }
 
-async function scrapeOrders(page: any): Promise<Order[]> {
+async function scrapeOrders(page: Page): Promise<Order[]> {
   // Navigate to order history
   console.log('Navigating to order history page...');
   const navigatedToOrderHistory = await navigateToOrderHistory(page);
@@ -317,20 +317,29 @@ async function main() {
     console.log(JSON.stringify(orders, null, 2));
     
     // Save orders to file
-    const fs = require('fs');
+    const fs = await import('fs');
     const outputFile = 'order-history-extract.json';
     
     try {
       // Write the JSON data to file, overwriting if it exists
       fs.writeFileSync(outputFile, JSON.stringify(orders, null, 2));
       console.log(`Order data saved to ${outputFile}`);
-    } catch (fileError: any) {
-      console.error(`Error saving to file: ${fileError.message}`);
+    } catch (fileError: unknown) {
+      const error = fileError as Error;
+      console.error(`Error saving to file: ${error.message}`);
     }
     
     // Close browser
-    if (loginResult.page.browser) {
-      await loginResult.page.browser().close();
+    const result = loginResult as { success: boolean; page: any };
+    if (result.page.browser && typeof result.page.browser === 'function') {
+      await result.page.browser().close();
+    } else if (result.page.context && typeof result.page.context === 'function') {
+      // Alternative way to close the browser via context
+      const context = await result.page.context();
+      const browser = context.browser();
+      if (browser) {
+        await browser.close();
+      }
     }
     
     console.log('Scraping completed successfully.');
