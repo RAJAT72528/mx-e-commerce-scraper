@@ -1,6 +1,6 @@
 # Amazon Order Scraper
 
-A TypeScript application that logs into Amazon.in, handles Multi-Factor Authentication (MFA), and extracts order information including product names, prices, and links.
+A TypeScript application that logs into Amazon.in, handles Multi-Factor Authentication (MFA), and extracts order information (of Products, Movies rented, Gift card Purchases etc.) including product names, prices, and links.
 
 ## Table of Contents
 
@@ -34,6 +34,7 @@ A TypeScript application that logs into Amazon.in, handles Multi-Factor Authenti
   - Price
   - Link to the product
 - ✅ Support for multiple items per order
+- ✅ It also supports All kinds of purchases history, like, movies rented, products ordered, Gift Cards ordered.
 - ✅ JSON output for easy integration with other systems
 - ✅ Diagnostic screenshot capture for troubleshooting
 - ✅ Robust browser session handling and cleanup
