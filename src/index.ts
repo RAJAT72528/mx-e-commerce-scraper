@@ -316,6 +316,18 @@ async function main() {
     // Output orders as JSON
     console.log(JSON.stringify(orders, null, 2));
     
+    // Save orders to file
+    const fs = require('fs');
+    const outputFile = 'order-history-extract.json';
+    
+    try {
+      // Write the JSON data to file, overwriting if it exists
+      fs.writeFileSync(outputFile, JSON.stringify(orders, null, 2));
+      console.log(`Order data saved to ${outputFile}`);
+    } catch (fileError: any) {
+      console.error(`Error saving to file: ${fileError.message}`);
+    }
+    
     // Close browser
     if (loginResult.page.browser) {
       await loginResult.page.browser().close();
