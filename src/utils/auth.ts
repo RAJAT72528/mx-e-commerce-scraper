@@ -29,6 +29,20 @@ export async function isMFARequired(page: Page): Promise<boolean> {
       return true;
     }
     
+    // Check for specific text on the page that indicates OTP verification
+    const hasVerificationHeading = await page.isVisible('h1:has-text("Enter verification code"), h1:has-text("Two-Step Verification"), h1:has-text("Authentication Required")');
+    if (hasVerificationHeading) {
+      console.log('OTP requirement detected: Found heading for verification code');
+      return true;
+    }
+    
+    // Check for OTP request throttling message
+    const hasThrottlingMessage = await page.isVisible('.a-alert-content:has-text("Please wait 60 seconds before requesting another code")');
+    if (hasThrottlingMessage) {
+      console.log('OTP requirement detected: Found throttling message for code requests');
+      return true;
+    }
+    
     // Fallback check: Check if we're on the OTP page by older URL pattern
     if (currentUrl.includes('/ap/signin') && 
         currentUrl.includes('openid.pape.max_auth_age=0')) {
@@ -46,8 +60,19 @@ export async function isMFARequired(page: Page): Promise<boolean> {
       // Look for specific text content that would indicate OTP
       const pageText = await page.textContent('body');
       if (pageText) {
-        for (const indicator of SELECTORS.MFA.OTP_TEXT_INDICATORS) {
-          if (pageText.toLowerCase().includes(indicator)) {
+        const lowerPageText = pageText.toLowerCase();
+        // Add more indicators specific to Amazon's OTP flow
+        const otpIndicators = [
+          ...SELECTORS.MFA.OTP_TEXT_INDICATORS,
+          "please wait 60 seconds before requesting another code",
+          "enter verification code",
+          "verification code sent",
+          "verify your device",
+          "verify your identity"
+        ];
+        
+        for (const indicator of otpIndicators) {
+          if (lowerPageText.includes(indicator.toLowerCase())) {
             console.log(`OTP requirement detected from text: "${indicator}"`);
             return true;
           }

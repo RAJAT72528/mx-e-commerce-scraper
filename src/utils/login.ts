@@ -107,6 +107,20 @@ export async function enterPassword(page: Page, password: string): Promise<boole
     // Wait briefly for error message or navigation
     await page.waitForTimeout(TIMEOUTS.ELEMENT_WAIT);
     
+    // Take a screenshot for debugging
+    await page.screenshot({ path: 'after-password-submit.png' });
+    
+    // Check if we're on the OTP verification page
+    // Import the isMFARequired function from auth.ts
+    const { isMFARequired } = require('./auth');
+    const isOnOTPPage = await isMFARequired(page);
+    
+    if (isOnOTPPage) {
+      console.log("OTP verification required. This is not a password error.");
+      // Return true as the password was correct, we just need OTP now
+      return true;
+    }
+    
     // First check specifically for the "Your password is incorrect" error message
     const incorrectPasswordError = await page.isVisible('.a-alert-content:has-text("Your password is incorrect")');
     if (incorrectPasswordError) {
@@ -120,17 +134,86 @@ export async function enterPassword(page: Page, password: string): Promise<boole
     if (otherErrorVisible) {
       const errorText = await page.textContent(SELECTORS.LOGIN.ERROR_CONTAINER) || '';
       console.error(`Login error: ${errorText.trim()}`);
+      
+      // Skip checking password errors if the error is about OTP
+      if (errorText.toLowerCase().includes('code') || 
+          errorText.toLowerCase().includes('verification') || 
+          errorText.toLowerCase().includes('otp') ||
+          errorText.toLowerCase().includes('wait 60 seconds')) {
+        console.log("Detected OTP-related message, not treating as password error");
+        return true;
+      }
+      
       return false;
     }
     
     // If no error, wait for navigation to complete
-    console.log("Waiting for navigation after sign-in...");
-    await page.waitForNavigation({ 
-      waitUntil: 'load',
-      timeout: TIMEOUTS.SIGN_IN_NAVIGATION
-    });
+    console.log("Checking for successful login...");
     
-    return true;
+    // Take screenshot before navigation check
+    await page.screenshot({ path: 'pre-navigation-check.png' });
+    
+    try {
+      // Check current URL to see if we've already navigated
+      const currentUrl = page.url();
+      
+      // If we're already navigated to a non-login URL, we're successful
+      if (!currentUrl.includes('/ap/signin') && !currentUrl.includes('/ap/password')) {
+        console.log(`Already navigated to: ${currentUrl}`);
+        return true;
+      }
+      
+      // Use Promise.race with timeout instead of waitForNavigation
+      const navigationCheck = Promise.race([
+        // Option 1: Check for successful navigation via event
+        page.waitForNavigation({ 
+          waitUntil: 'load',
+          timeout: TIMEOUTS.SIGN_IN_NAVIGATION 
+        }).then(() => 'navigation-event'),
+        
+        // Option 2: Check for elements that indicate successful login
+        page.waitForSelector('#nav-logo, #navbar, #nav-belt, #nav-main', { 
+          timeout: TIMEOUTS.SIGN_IN_NAVIGATION 
+        }).then(() => 'logged-in-element'),
+        
+        // Option 3: Fail-safe timeout
+        new Promise(resolve => setTimeout(() => resolve('timeout'), TIMEOUTS.SIGN_IN_NAVIGATION))
+      ]);
+      
+      const result = await navigationCheck;
+      console.log(`Login navigation result: ${result}`);
+      
+      // Take post-navigation screenshot
+      await page.screenshot({ path: 'post-navigation-check.png' });
+      
+      // Final verification that we're not on login page
+      const stillOnLoginPage = await page.isVisible(SELECTORS.LOGIN.AUTH_WORKFLOW, { timeout: 5000 })
+        .catch(() => false);
+      
+      if (stillOnLoginPage) {
+        console.log("Still detected on login page, login may have failed");
+        return false;
+      }
+      
+      // If we're on a non-login URL, we're successful
+      const finalUrl = page.url();
+      console.log(`Final URL: ${finalUrl}`);
+      return !finalUrl.includes('/ap/signin') && !finalUrl.includes('/ap/password');
+      
+    } catch (error) {
+      console.error('Error during navigation check:', error);
+      
+      // Check if we landed on the homepage despite the error
+      const homePageCheck = await page.isVisible('#nav-logo, #navbar', { timeout: 5000 })
+        .catch(() => false);
+      
+      if (homePageCheck) {
+        console.log("Detected Amazon homepage elements, considering login successful");
+        return true;
+      }
+      
+      return false;
+    }
   } catch (error) {
     console.error('Error entering password:', error);
     return false;
