@@ -51,24 +51,50 @@ async function promptForCredentials(attemptsLeft = 5): Promise<{ username: strin
   return { username, password };
 }
 
-async function promptForMFA(attemptsLeft = 5): Promise<string | null> {
-  if (attemptsLeft <= 0) {
-    console.error('Maximum MFA attempts reached. Exiting...');
-    return null;
-  }
-
-  const { mfaCode } = await inquirer.prompt([
+/**
+ * Prompt user for OTP code
+ * @param attemptsLeft Number of attempts remaining
+ * @returns OTP code or null if user cancels
+ */
+async function promptForMFA(attemptsLeft: number): Promise<string | null> {
+  const questions = [
     {
       type: 'input',
-      name: 'mfaCode',
-      message: 'Enter the MFA code sent to your device:',
-      validate: (input) => {
-        return input.trim().length > 0 || 'MFA code cannot be empty.';
-      }
+      name: 'otpCode',
+      message: `Enter the OTP sent to your mobile (${attemptsLeft} attempts left):`,
     }
-  ]);
+  ];
 
-  return mfaCode;
+  try {
+    const answers = await inquirer.prompt(questions);
+    return answers.otpCode;
+  } catch (error) {
+    console.error('Error prompting for OTP:', error);
+    return null;
+  }
+}
+
+/**
+ * Prompt user for password only
+ * @returns Password or null if user cancels
+ */
+async function promptForPassword(): Promise<string | null> {
+  const questions = [
+    {
+      type: 'password',
+      name: 'password',
+      message: 'Enter your password:',
+      mask: '*'
+    }
+  ];
+
+  try {
+    const answers = await inquirer.prompt(questions);
+    return answers.password;
+  } catch (error) {
+    console.error('Error prompting for password:', error);
+    return null;
+  }
 }
 
 async function handleLogin(): Promise<{ success: boolean; page: any } | null> {
@@ -79,145 +105,132 @@ async function handleLogin(): Promise<{ success: boolean; page: any } | null> {
     // Navigate to Amazon login page
     await navigateToAmazonLogin(page);
     
+    // Wait for the page to fully load
+    await page.waitForTimeout(3000);
+    
     let loginSuccessful = false;
-    let attemptsLeft = 5;
     
-    while (!loginSuccessful && attemptsLeft > 0) {
-      // Get credentials from user
-      const credentials = await promptForCredentials(attemptsLeft);
-      if (!credentials) {
-        await browser.close();
-        return null;
-      }
-      
-      // Enter username with retry logic
-      let usernameEntered = false;
-      let usernameAttempts = 3; // Allow multiple attempts for username entry
-      
-      while (!usernameEntered && usernameAttempts > 0) {
-        try {
-          usernameEntered = await enterUsername(page, credentials.username);
-          if (!usernameEntered) {
-            console.error('Error entering username. Please try again.');
-            usernameAttempts--;
-            
-            // If we've had trouble with the username entry, try reloading the page
-            if (usernameAttempts > 0) {
-              console.log("Reloading login page to try again...");
-              await navigateToAmazonLogin(page);
-              await page.waitForTimeout(3000); // Short wait for page load
-            }
-          }
-        } catch (error) {
-          console.error('Exception during username entry:', error);
-          usernameAttempts--;
-          
-          // Try reloading the page on error
-          if (usernameAttempts > 0) {
-            console.log("Reloading login page after error...");
-            await navigateToAmazonLogin(page);
-            await page.waitForTimeout(3000); // Short wait for page load
-          }
-        }
-      }
-      
-      if (!usernameEntered) {
-        console.error('Failed to enter username after multiple attempts');
-        attemptsLeft--;
-        continue;
-      }
-      
-      // Enter password with retry logic
-      let passwordEntered = false;
-      let passwordAttempts = 3; // Allow multiple attempts for password entry
-      
-      while (!passwordEntered && passwordAttempts > 0) {
-        try {
-          passwordEntered = await enterPassword(page, credentials.password);
-          if (!passwordEntered) {
-            console.error('Error entering password. Please try again.');
-            passwordAttempts--;
-          }
-        } catch (error) {
-          console.error('Exception during password entry:', error);
-          passwordAttempts--;
-        }
-      }
-      
-      if (!passwordEntered) {
-        console.error('Failed to enter password after multiple attempts');
-        attemptsLeft--;
-        
-        // Reload the page for the next attempt
-        await navigateToAmazonLogin(page);
-        continue;
-      }
-      
-      // Wait a moment for the page to settle
-      await page.waitForTimeout(3000);
-      
-      // Check if credentials were invalid
-      const invalidCredentials = await checkInvalidCredentials(page);
-      if (invalidCredentials) {
-        console.error('Invalid credentials. Please try again.');
-        attemptsLeft--;
-        // Refresh page to retry login
-        await navigateToAmazonLogin(page);
-        continue;
-      }
-      
-      // Check if MFA is required
-      const mfaRequired = await isMFARequired(page);
-      if (mfaRequired) {
-        let mfaAttemptsLeft = 5;
-        let mfaSuccessful = false;
-        
-        while (!mfaSuccessful && mfaAttemptsLeft > 0) {
-          // Prompt for MFA code
-          const mfaCode = await promptForMFA(mfaAttemptsLeft);
-          if (!mfaCode) {
-            await browser.close();
-            return null;
-          }
-          
-          // Submit MFA code
-          mfaSuccessful = await submitMFACode(page, mfaCode);
-          if (!mfaSuccessful) {
-            console.error('Invalid MFA code. Please try again.');
-            mfaAttemptsLeft--;
-          }
-        }
-        
-        if (!mfaSuccessful) {
-          console.error('Failed to verify MFA. Exiting...');
-          await browser.close();
-          return null;
-        }
-      }
-      
-      // Final check to make sure we're actually logged in
-      const stillOnLoginPages = await page.isVisible('#ap_password, #ap_email, .auth-workflow, .a-box-inner:has-text("Sign-In")');
-      if (stillOnLoginPages) {
-        console.error('Still on login page after all steps. Login failed.');
-        attemptsLeft--;
-        await navigateToAmazonLogin(page);
-        continue;
-      }
-      
-      // If we reach here, login was successful
-      console.log('Login successful!');
-      loginSuccessful = true;
-    }
-    
-    if (!loginSuccessful) {
-      console.error('Failed to log in after multiple attempts. Exiting...');
+    // Get credentials from user
+    const credentials = await promptForCredentials();
+    if (!credentials) {
       await browser.close();
       return null;
     }
     
-    return { success: true, page };
+    // First attempt: Enter username
+    console.log(`Attempting to log in with ${credentials.username}`);
+    let usernameEntered = await enterUsername(page, credentials.username);
+    
+    // If username is invalid, prompt for a new one up to 3 times
+    let usernameAttempts = 3;
+    while (!usernameEntered && usernameAttempts > 1) {
+      usernameAttempts--;
+      console.log(`Invalid username. ${usernameAttempts} attempts remaining.`);
+      
+      // Take a screenshot to help diagnose
+      await page.screenshot({ path: `invalid-username-${usernameAttempts}.png` });
+      
+      // Prompt for a new username
+      const newCredentials = await promptForCredentials();
+      if (!newCredentials) {
+        await browser.close();
+        return null;
+      }
+      
+      // Try with the new username
+      console.log(`Retrying with username: ${newCredentials.username}`);
+      usernameEntered = await enterUsername(page, newCredentials.username);
+    }
+    
+    if (!usernameEntered) {
+      console.error("Failed to enter a valid username after multiple attempts");
+      await browser.close();
+      return null;
+    }
+    
+    // Username accepted, now enter password
+    console.log("Username accepted, proceeding to password entry");
+    let passwordEntered = await enterPassword(page, credentials.password);
+    
+    // If password is incorrect, prompt for a new one up to 3 times
+    let passwordAttempts = 3;
+    while (!passwordEntered && passwordAttempts > 1) {
+      passwordAttempts--;
+      console.log(`Incorrect password. ${passwordAttempts} attempts remaining.`);
+      
+      // Take a screenshot to help diagnose
+      await page.screenshot({ path: `incorrect-password-${passwordAttempts}.png` });
+      
+      // Prompt for a new password
+      const newPassword = await promptForPassword();
+      if (!newPassword) {
+        await browser.close();
+        return null;
+      }
+      
+      // Try with the new password
+      console.log("Retrying with new password");
+      passwordEntered = await enterPassword(page, newPassword);
+    }
+    
+    if (!passwordEntered) {
+      console.error("Failed to enter a valid password after multiple attempts");
+      await browser.close();
+      return null;
+    }
+    
+    // Check if OTP is required after password validation
+    const otpRequired = await isMFARequired(page);
+    if (otpRequired) {
+      console.log("OTP verification required");
+      
+      let otpSuccess = false;
+      let otpAttempts = 3;
+      
+      while (!otpSuccess && otpAttempts > 0) {
+        // Prompt for OTP
+        const otpCode = await promptForMFA(otpAttempts);
+        if (!otpCode) {
+          await browser.close();
+          return null;
+        }
+        
+        // Submit OTP
+        console.log("Submitting OTP code");
+        otpSuccess = await submitMFACode(page, otpCode);
+        
+        if (!otpSuccess) {
+          console.error("Invalid OTP code");
+          otpAttempts--;
+        }
+      }
+      
+      if (!otpSuccess) {
+        console.error("Failed to verify OTP after multiple attempts");
+        await browser.close();
+        return null;
+      }
+    }
+    
+    // Final check to verify we're logged in
+    await page.waitForTimeout(3000);
+    
+    // Check if we're still on any login pages
+    const stillOnLoginPage = await page.isVisible('#ap_password, #ap_email, .auth-workflow');
+    if (stillOnLoginPage) {
+      console.error("Still on login page after all steps. Login failed.");
+      await browser.close();
+      return null;
+    }
+    
+    console.log("Login successful!");
+    loginSuccessful = true;
+    
+    return { success: loginSuccessful, page };
   } catch (error) {
     console.error('Unexpected error during login:', error);
+    // Final error screenshot
+    await page.screenshot({ path: 'login-unexpected-error.png' });
     await browser.close();
     return null;
   }
@@ -225,9 +238,34 @@ async function handleLogin(): Promise<{ success: boolean; page: any } | null> {
 
 async function scrapeOrders(page: any): Promise<OrderItem[]> {
   // Navigate to order history
-  const navigated = await navigateToOrderHistory(page);
-  if (!navigated) {
+  console.log('Navigating to order history page...');
+  const navigatedToOrderHistory = await navigateToOrderHistory(page);
+  if (!navigatedToOrderHistory) {
     console.error('Failed to navigate to order history.');
+    
+    // Take a screenshot to see the current state
+    await page.screenshot({ path: 'orders-page-state.png' });
+    
+    // Check URL to see if we might be on orders page despite detection failure
+    const currentUrl = page.url();
+    console.log(`Current URL: ${currentUrl}`);
+    
+    const possibleOrderUrls = [
+      'order-history',
+      'your-orders',
+      'gp/css/order-history',
+      'gp/your-account/order-history'
+    ];
+    
+    const mightBeOnOrdersPage = possibleOrderUrls.some(urlPart => currentUrl.includes(urlPart));
+    
+    if (mightBeOnOrdersPage) {
+      console.log('URL suggests we might be on the orders page, proceeding with extraction attempt...');
+      const orders = await extractOrders(page);
+      console.log(orders);
+      return orders;
+    }
+    
     return [];
   }
   

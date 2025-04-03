@@ -1,17 +1,20 @@
-/**
- * Scraper utility functions
- */
+import { Page, Browser } from 'playwright';
 
-import { Page, Browser, chromium } from 'playwright';
+// Define the OrderItem interface
+export interface OrderItem {
+  productName: string;
+  price: string;
+  orderDate: string;
+  link?: string;
+}
 
 /**
- * Launch browser and create new page
- * @returns Object containing browser and page instances
+ * Initialize browser and page
+ * @returns Browser and page instances
  */
 export async function initBrowser(): Promise<{ browser: Browser; page: Page }> {
-  const browser = await chromium.launch({
-    headless: false, // Set to true in production
-  });
+  const { chromium } = require('playwright');
+  const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext();
   const page = await context.newPage();
   return { browser, page };
@@ -22,61 +25,12 @@ export async function initBrowser(): Promise<{ browser: Browser; page: Page }> {
  * @param page Playwright page instance
  */
 export async function navigateToAmazonLogin(page: Page): Promise<void> {
-  await page.goto('https://www.amazon.in/ap/signin?openid.pape.max_auth_age=0&openid.return_to=https%3A%2F%2Fwww.amazon.in%2F%3Fref_%3Dnav_signin&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.assoc_handle=inflex&openid.mode=checkid_setup&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0', { waitUntil: 'networkidle' });
-}
-
-/**
- * Check if the page has CAPTCHA verification
- * @param page Playwright page instance
- * @returns Boolean indicating if CAPTCHA is present
- */
-export async function checkForCaptcha(page: Page): Promise<boolean> {
-  try {
-    // Look for common CAPTCHA elements
-    const captchaSelectors = [
-      '.captcha-container',
-      '#captchacharacters',
-      'img[src*="captcha"]',
-      'input[name="captchacharacters"]',
-      '.a-box-inner:has-text("characters you see")'
-    ];
-    
-    for (const selector of captchaSelectors) {
-      if (await page.isVisible(selector, { timeout: 3000 })) {
-        return true;
-      }
-    }
-    
-    return false;
-  } catch (error) {
-    // If error occurs, assume no CAPTCHA for safety
-    return false;
-  }
-}
-
-/**
- * Prompt user to solve CAPTCHA
- * @param page Playwright page instance
- * @returns Boolean indicating success
- */
-export async function handleCaptcha(page: Page): Promise<boolean> {
-  console.log('\n⚠️ CAPTCHA detected! ⚠️');
-  console.log('Please solve the CAPTCHA in the browser window.');
-  console.log('The program will continue automatically after you solve it.');
-  console.log('Press Enter in the browser after completing the CAPTCHA.\n');
+  await page.goto('https://www.amazon.in/ap/signin?openid.pape.max_auth_age=0&openid.return_to=https%3A%2F%2Fwww.amazon.in%2F%3Fref_%3Dnav_signin&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.assoc_handle=inflex&openid.mode=checkid_setup&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0', { 
+    waitUntil: 'load'
+  });
   
-  try {
-    // Wait for user to solve CAPTCHA and press Enter/Continue
-    await Promise.race([
-      page.waitForNavigation({ timeout: 120000 }), // 2 minutes timeout
-      page.waitForSelector('#ap_password', { timeout: 120000 })
-    ]);
-    
-    return true;
-  } catch (error) {
-    console.error('CAPTCHA handling timed out or failed:', error);
-    return false;
-  }
+  // Add a short delay after page load for any JS to initialize
+  await page.waitForTimeout(1000);
 }
 
 /**
@@ -87,86 +41,24 @@ export async function handleCaptcha(page: Page): Promise<boolean> {
  */
 export async function enterUsername(page: Page, username: string): Promise<boolean> {
   try {
-    // Check for CAPTCHA before proceeding
-    const hasCaptcha = await checkForCaptcha(page);
-    if (hasCaptcha) {
-      const captchaSolved = await handleCaptcha(page);
-      if (!captchaSolved) {
-        return false;
-      }
-    }
-    
-    // Check the current state of the login form
+    // Check the current state of login form
     console.log("Checking current state of login form...");
     
-    // First, check if we're already on the password page with the same username
-    const hiddenEmailField = await page.$('#ap_email[type="hidden"]');
-    if (hiddenEmailField) {
-      const currentValue = await hiddenEmailField.getAttribute('value');
-      console.log(`Found hidden email field with value: ${currentValue}`);
-      
-      // If we're already showing the password page with the same username, just proceed
-      if (currentValue === username || `+91${username}` === currentValue) {
-        console.log("Already on password page with correct username");
-        return true;
-      }
-      
-      // If we need to use a different username, look for a change link
-      console.log("Need to change username. Looking for change link...");
-      
-      // Try various change link selectors
-      const changeSelectors = [
-        'a:has-text("Change")',
-        '#ap_change_login_claim',
-        '.a-link-normal:has-text("Change")',
-        '.a-link-normal[role="button"]'
-      ];
-      
-      let changeClicked = false;
-      for (const selector of changeSelectors) {
-        try {
-          const isVisible = await page.isVisible(selector, { timeout: 5000 });
-          if (isVisible) {
-            await page.click(selector);
-            console.log(`Clicked change link with selector: ${selector}`);
-            changeClicked = true;
-            
-            // Wait for the email field to appear after clicking change
-            await page.waitForSelector('#ap_email:not([type="hidden"])', { timeout: 30000 });
-            break;
-          }
-        } catch (error) {
-          // Continue to the next selector
-          console.warn(`Change selector ${selector} not found or failed`);
-        }
-      }
-      
-      if (!changeClicked) {
-        // If we can't find a change link, try reloading the page completely
-        console.log("Couldn't find change link, reloading login page...");
-        await navigateToAmazonLogin(page);
-        await page.waitForSelector('#ap_email:not([type="hidden"])', { timeout: 30000 });
-      }
-    }
+    // Take a screenshot to debug
+    await page.screenshot({ path: 'login-page-state.png' });
     
-    // Wait for the visible email field (not hidden)
-    const emailField = await page.waitForSelector('#ap_email:not([type="hidden"]), input[name="email"]:not([type="hidden"])', { 
-      timeout: 30000, // Increased timeout to 30 seconds
-      state: 'visible'
-    });
+    // Debug - log the current URL
+    console.log(`Current URL: ${page.url()}`);
     
-    if (!emailField) {
-      console.error('Could not find visible email input field');
+    // Check specifically for the "Invalid mobile number" error
+    const hasInvalidMobileError = await page.isVisible('.a-alert-content:has-text("Invalid mobile number")');
+    if (hasInvalidMobileError) {
+      console.error('Invalid mobile number detected');
+      await page.screenshot({ path: 'invalid-mobile-error.png' });
       return false;
     }
     
-    // Make sure the field is empty before typing
-    await page.evaluate(() => {
-      const input = document.querySelector('#ap_email') as HTMLInputElement;
-      if (input) input.value = '';
-    });
-    
-    // Fill in the username
+    // Wait for the visible email field
     await page.fill('#ap_email', username);
     console.log(`Entered username: ${username}`);
     
@@ -174,26 +66,42 @@ export async function enterUsername(page: Page, username: string): Promise<boole
     await page.click('#continue');
     console.log('Clicked continue button');
     
-    // Wait for either password field or an error
-    try {
-      await page.waitForSelector('#ap_password, .a-alert-content', { 
-        timeout: 30000 // Increased timeout to 30 seconds
-      });
-      
-      // Check if there was an error with the username
-      const hasError = await page.isVisible('.a-alert-content');
-      if (hasError) {
-        const errorText = await page.textContent('.a-alert-content');
-        console.error(`Username error: ${errorText}`);
-        return false;
-      }
-      
-      console.log('Successfully proceeded to password page');
-      return true;
-    } catch (error) {
-      console.error('Timeout waiting for password field or error message:', error);
+    // Wait briefly for any navigation or DOM changes
+    await page.waitForTimeout(2000);
+    
+    // Check specifically for the "Invalid mobile number" error
+    const hasInvalidMobileErrorAfterContinue = await page.isVisible('.a-alert-content:has-text("Invalid mobile number")');
+    if (hasInvalidMobileErrorAfterContinue) {
+      console.error('Invalid mobile number detected');
+      await page.screenshot({ path: 'invalid-mobile-error.png' });
       return false;
     }
+    
+    // Check for any other alert messages
+    const hasOtherAlert = await page.isVisible('.a-alert-content');
+    if (hasOtherAlert) {
+      const errorText = await page.textContent('.a-alert-content') || '';
+      console.log(`Alert found after continuing: "${errorText}"`);
+      
+      // Check for specific error messages that indicate credential problems
+      if (errorText.toLowerCase().includes('find') || 
+          errorText.toLowerCase().includes('cannot') || 
+          errorText.toLowerCase().includes('problem') ||
+          errorText.toLowerCase().includes('invalid')) {
+        console.error(`Username error: ${errorText}`);
+        await page.screenshot({ path: 'username-error.png' });
+        return false;
+      }
+    }
+    
+    // Look for the password field to confirm we've moved to the next step
+    const onPasswordPage = await page.isVisible('#ap_password', { timeout: 5000 });
+    if (onPasswordPage) {
+      console.log('Successfully transitioned to password page');
+      return true;
+    }
+    
+    return false;
   } catch (error) {
     console.error('Error entering username:', error);
     return false;
@@ -201,73 +109,46 @@ export async function enterUsername(page: Page, username: string): Promise<boole
 }
 
 /**
- * Enter password
+ * Enter password 
  * @param page Playwright page instance
  * @param password User's password
  * @returns Boolean indicating success
  */
 export async function enterPassword(page: Page, password: string): Promise<boolean> {
   try {
-    console.log("Attempting to enter password...");
-    
-    // Check if we need to handle CAPTCHA
-    const hasCaptcha = await checkForCaptcha(page);
-    if (hasCaptcha) {
-      console.log("CAPTCHA detected before password entry");
-      const captchaSolved = await handleCaptcha(page);
-      if (!captchaSolved) {
-        return false;
-      }
-    }
-    
-    // Wait for password field with a longer timeout
-    console.log("Waiting for password field...");
-    await page.waitForSelector('#ap_password', { 
-      timeout: 30000, // Increased timeout to 30 seconds
-      state: 'visible'
-    });
-    
-    // Fill password field
+    // Fill in the password
     await page.fill('#ap_password', password);
-    console.log("Password entered");
-    
-    // Check for "Keep me signed in" checkbox and ensure it's unchecked
-    // This ensures more consistent behavior across sessions
-    try {
-      const rememberMeSelector = '#rememberMe';
-      const isVisible = await page.isVisible(rememberMeSelector);
-      if (isVisible) {
-        const isChecked = await page.$eval(rememberMeSelector, el => (el as HTMLInputElement).checked);
-        if (isChecked) {
-          await page.click(rememberMeSelector);
-          console.log("Unchecked 'Keep me signed in'");
-        }
-      }
-    } catch (error) {
-      // Not critical if this fails, continue with login
-      console.warn('Could not manage "Remember me" checkbox:', error);
-    }
     
     // Click sign-in button
     console.log("Clicking sign-in button...");
     await page.click('#signInSubmit');
     
-    // Wait for navigation to complete
-    console.log("Waiting for navigation after sign-in...");
-    await page.waitForNavigation({ 
-      waitUntil: 'networkidle',
-      timeout: 45000 // Increased timeout to 45 seconds for slower connections
-    });
+    // Wait briefly for error message or navigation
+    await page.waitForTimeout(2000);
     
-    // Check for various outcomes after login attempt
-    const errorVisible = await page.isVisible('.a-alert-content, .a-box-inner .a-alert-container', { timeout: 5000 });
-    if (errorVisible) {
+    // First check specifically for the "Your password is incorrect" error message
+    const incorrectPasswordError = await page.isVisible('.a-alert-content:has-text("Your password is incorrect")');
+    if (incorrectPasswordError) {
+      console.error('Incorrect password detected');
+      await page.screenshot({ path: 'incorrect-password-error.png' });
+      return false;
+    }
+    
+    // Check for other error messages
+    const otherErrorVisible = await page.isVisible('.a-alert-content, .a-box-inner .a-alert-container');
+    if (otherErrorVisible) {
       const errorText = await page.textContent('.a-alert-content, .a-box-inner .a-alert-container') || '';
       console.error(`Login error: ${errorText.trim()}`);
       return false;
     }
     
-    console.log("Successfully signed in");
+    // If no error, wait for navigation to complete
+    console.log("Waiting for navigation after sign-in...");
+    await page.waitForNavigation({ 
+      waitUntil: 'load',
+      timeout: 45000 // Increased timeout to 45 seconds for slower connections
+    });
+    
     return true;
   } catch (error) {
     console.error('Error entering password:', error);
@@ -276,166 +157,124 @@ export async function enterPassword(page: Page, password: string): Promise<boole
 }
 
 /**
- * Check if credentials are invalid
+ * Check if credentials were invalid
  * @param page Playwright page instance
- * @returns Boolean indicating if credentials are invalid
+ * @returns Boolean indicating if credentials were invalid
  */
 export async function checkInvalidCredentials(page: Page): Promise<boolean> {
   try {
-    console.log("Checking for invalid credentials...");
-    
-    // Check for various error selectors and messages
-    const errorSelectors = [
-      '.a-alert-heading',
-      '.a-box-inner .a-alert-container',
-      '.a-alert-content',
-      '#auth-error-message-box',
-      '.auth-error-message-box',
-      '#auth-warning-message-box',
-      '.a-box-inner h4:has-text("Problem")',
-      '.a-box-inner h4:has-text("There was a problem")'
-    ];
-    
-    // Check each selector for visibility
-    for (const selector of errorSelectors) {
-      const isVisible = await page.isVisible(selector, { timeout: 3000 });
-      if (isVisible) {
-        const errorText = await page.textContent(selector) || '';
-        const errorLower = errorText.toLowerCase();
-        console.log(`Found error message: "${errorText.trim()}"`);
-        
-        // Check for common error keywords
-        const errorKeywords = [
-          'problem',
-          'incorrect',
-          'wrong',
-          'invalid',
-          'error',
-          'not recognized',
-          'failed',
-          'couldn\'t find',
-          'doesn\'t match',
-          'we cannot find an account',
-          'no account found'
-        ];
-        
-        // If any error keywords are found, consider credentials invalid
-        if (errorKeywords.some(keyword => errorLower.includes(keyword))) {
-          console.error(`Credential error detected: ${errorText.trim()}`);
-          return true;
-        }
-      }
-    }
-    
-    // Additional check for password mismatch errors which might have different selectors
-    try {
-      const passwordErrors = await page.$$eval('.a-list-item', elements => 
-        elements
-          .filter(el => 
-            el.textContent?.toLowerCase().includes('password') && 
-            (el.textContent?.toLowerCase().includes('incorrect') || 
-             el.textContent?.toLowerCase().includes('wrong'))
-          )
-          .map(el => el.textContent)
-      );
-      
-      if (passwordErrors.length > 0) {
-        console.error(`Password error detected: ${passwordErrors[0]}`);
-        return true;
-      }
-    } catch (err) {
-      // Non-critical, continue with other checks
-    }
-    
-    // Check if we're still on login page when we should have navigated away
-    // But only if we're not in the middle of the login process (password screen is ok)
-    const passwordScreenVisible = await page.isVisible('#ap_password', { timeout: 2000 });
-    const emailScreenVisible = await page.isVisible('#ap_email:not([type="hidden"])', { timeout: 2000 });
-    const isOnHomePage = await page.isVisible('#nav-logo-sprites, #nav-belt, #nav-main', { timeout: 2000 });
-    
-    if ((emailScreenVisible || (!passwordScreenVisible && !isOnHomePage))) {
-      console.error('Still on login page - possible invalid credentials');
+    // Check for error messages
+    const hasError = await page.isVisible('.a-alert-content');
+    if (hasError) {
+      const errorText = await page.textContent('.a-alert-content') || '';
+      console.error(`Login error: ${errorText}`);
       return true;
     }
-    
-    console.log("No credential errors detected");
     return false;
   } catch (error) {
-    // If selector not found or other error, assume no error for safety
-    console.warn('Error checking invalid credentials:', error);
+    console.error('Error checking invalid credentials:', error);
     return false;
   }
 }
 
 /**
- * Check if MFA is required
+ * Check if OTP/MFA is required
  * @param page Playwright page instance
- * @returns Boolean indicating if MFA is required
+ * @returns Boolean indicating if OTP/MFA is required
  */
 export async function isMFARequired(page: Page): Promise<boolean> {
   try {
-    // Look for OTP input field or MFA-related text
-    const mfaSelectors = [
-      '#auth-mfa-otpcode', // OTP input field
-      '.auth-mfa-form', // MFA form container
-      '#auth-mfa-remember-device', // Remember device checkbox for MFA
-      'input[name="otpCode"]', // Generic OTP input
-      'form:has-text("Two-Step Verification")', // Text-based detection
-      'form:has-text("Two-Factor Authentication")', // Text-based detection
-      'form:has-text("Enter the OTP")', // Text-based detection for India
-      '#auth-mfa-form', // Another possible MFA form ID
-      '[data-a-target="mfa-otp-field"]', // Possible attribute for OTP field
-      'input[placeholder*="verification"]' // Input with verification in placeholder
-    ];
+    // Check the current URL to see if we're on the OTP page
+    const currentUrl = page.url();
+    console.log(`Checking if OTP is required. Current URL: ${currentUrl}`);
     
-    for (const selector of mfaSelectors) {
-      // Use a shorter timeout for each individual selector check
-      if (await page.isVisible(selector, { timeout: 1000 })) {
-        console.log('MFA requirement detected');
-        return true;
+    // Take a screenshot to help debug
+    await page.screenshot({ path: 'possible-otp-page.png' });
+    
+    // Check if we're on the OTP page by URL pattern
+    if (currentUrl.includes('/ap/signin') && 
+        currentUrl.includes('openid.pape.max_auth_age=0')) {
+      console.log('Potential OTP page detected by URL pattern');
+      
+      // Look for OTP input field or MFA-related text
+      const mfaSelectors = [
+        '#auth-mfa-otpcode', // OTP input field
+        '.auth-mfa-form', // MFA form container
+        '#auth-mfa-remember-device', // Remember device checkbox for MFA
+        'input[name="otpCode"]', // Generic OTP input
+        'form:has-text("Two-Step Verification")', // Text-based detection
+        'form:has-text("Two-Factor Authentication")', // Text-based detection
+        'form:has-text("Enter the OTP")', // Text-based detection for India
+        '#auth-mfa-form', // Another possible MFA form ID
+        '[data-a-target="mfa-otp-field"]', // Possible attribute for OTP field
+        'input[placeholder*="verification"]', // Input with verification in placeholder
+        'input[type="tel"]' // Often used for OTP inputs
+      ];
+      
+      for (const selector of mfaSelectors) {
+        // Use a shorter timeout for each individual selector check
+        if (await page.isVisible(selector, { timeout: 2000 })) {
+          console.log(`OTP requirement detected with selector: ${selector}`);
+          return true;
+        }
       }
-    }
-    
-    // Check for text content indicating MFA
-    try {
+      
+      // Look for specific text content that would indicate OTP
       const pageText = await page.textContent('body');
       if (pageText) {
-        const mfaTextIndicators = [
+        const otpTextIndicators = [
           'verification code',
           'two-step verification',
           'two-factor authentication',
           'security code',
           'enter the code',
           'otp',
-          'authentication code'
+          'one-time password',
+          'authentication code',
+          'mobile number we have on record',
+          'enter the otp',
+          'sent to your mobile'
         ];
         
-        if (mfaTextIndicators.some(text => pageText.toLowerCase().includes(text))) {
-          console.log('MFA requirement detected from page text');
-          return true;
+        for (const indicator of otpTextIndicators) {
+          if (pageText.toLowerCase().includes(indicator)) {
+            console.log(`OTP requirement detected from text: "${indicator}"`);
+            return true;
+          }
         }
       }
-    } catch (err) {
-      console.warn('Error checking page text for MFA indicators:', err);
     }
     
     return false;
   } catch (error) {
-    console.warn('Error checking MFA requirement:', error);
+    console.warn('Error checking OTP requirement:', error);
     return false;
   }
 }
 
 /**
- * Submit MFA code
+ * Submit OTP code
  * @param page Playwright page instance
- * @param mfaCode MFA code provided by user
+ * @param otpCode OTP code provided by user
  * @returns Boolean indicating success
  */
-export async function submitMFACode(page: Page, mfaCode: string): Promise<boolean> {
+export async function submitMFACode(page: Page, otpCode: string): Promise<boolean> {
   try {
-    // Try different possible MFA input fields
-    const mfaInputSelectors = [
+    // Take a screenshot of the OTP page
+    await page.screenshot({ path: 'otp-page.png' });
+    
+    // Check if we're on the expected OTP page
+    const currentUrl = page.url();
+    console.log(`Submitting OTP on page: ${currentUrl}`);
+    
+    // Check for Amazon's specific OTP URL pattern
+    if (currentUrl.includes('/ap/signin') && 
+        currentUrl.includes('openid.pape.max_auth_age=0')) {
+      console.log('Detected Amazon signin OTP page');
+    }
+    
+    // Try different possible OTP input fields
+    const otpInputSelectors = [
       '#auth-mfa-otpcode',
       'input[name="otpCode"]',
       'input[id*="mfa"]',
@@ -445,28 +284,31 @@ export async function submitMFACode(page: Page, mfaCode: string): Promise<boolea
       'input[placeholder*="code"]',
       '[data-a-target="mfa-otp-field"]',
       'input[type="tel"]', // Sometimes OTP fields use tel type
-      '#auth-mfa-otpcode' // Fallback to the most common one again
+      'input[type="text"]', // Generic text input
+      'input.a-input-text' // Amazon's generic input class
     ];
     
     let inputField = null;
-    for (const selector of mfaInputSelectors) {
-      const isVisible = await page.isVisible(selector, { timeout: 1000 });
+    for (const selector of otpInputSelectors) {
+      const isVisible = await page.isVisible(selector, { timeout: 2000 });
       if (isVisible) {
         inputField = selector;
+        console.log(`Found OTP input field with selector: ${selector}`);
         break;
       }
     }
     
     if (!inputField) {
-      console.error('Could not find MFA input field');
+      console.error('Could not find OTP input field');
       return false;
     }
     
     // Clear the field first in case it has any content
     await page.fill(inputField, '');
     
-    // Fill in the MFA code
-    await page.fill(inputField, mfaCode);
+    // Fill in the OTP code
+    await page.fill(inputField, otpCode);
+    console.log(`Entered OTP code: ${otpCode.replace(/./g, '*')}`);
     
     // Try different submit button selectors
     const submitButtonSelectors = [
@@ -478,174 +320,167 @@ export async function submitMFACode(page: Page, mfaCode: string): Promise<boolea
       'button:has-text("Continue")',
       '.a-button-input',
       '[aria-labelledby*="submit"]',
-      'form .a-button-primary'
+      'form .a-button-primary',
+      'input.a-button-input'
     ];
     
     let submitButton = null;
     for (const selector of submitButtonSelectors) {
-      const isVisible = await page.isVisible(selector, { timeout: 1000 });
+      const isVisible = await page.isVisible(selector, { timeout: 2000 });
       if (isVisible) {
         submitButton = selector;
+        console.log(`Found OTP submit button with selector: ${selector}`);
         break;
       }
     }
     
     if (!submitButton) {
-      console.error('Could not find MFA submit button');
+      console.error('Could not find OTP submit button');
       return false;
     }
     
     // Click the submit button
     await page.click(submitButton);
+    console.log('Clicked OTP submit button');
     
     // Wait for navigation to complete
     await page.waitForNavigation({ 
-      waitUntil: 'networkidle',
+      waitUntil: 'load',
       timeout: 15000 
     });
     
-    // Check if MFA was incorrect by seeing if we're still on the MFA page
-    const stillOnMFAPage = await isMFARequired(page);
+    // Take a screenshot after OTP submission
+    await page.screenshot({ path: 'after-otp-submission.png' });
+    
+    // Check if OTP was incorrect by seeing if we're still on the OTP page
+    const stillOnOTPPage = await isMFARequired(page);
     
     // Check for error messages
     const hasError = await page.isVisible('.a-alert-content, .a-box-inner .a-alert-container', { timeout: 2000 });
     
-    if (stillOnMFAPage || hasError) {
-      const errorText = await page.textContent('.a-alert-content, .a-box-inner .a-alert-container') || 'Invalid MFA code';
-      console.error(`MFA error: ${errorText.trim()}`);
+    if (stillOnOTPPage || hasError) {
+      const errorText = await page.textContent('.a-alert-content, .a-box-inner .a-alert-container') || 'Invalid OTP code';
+      console.error(`OTP error: ${errorText.trim()}`);
       return false;
     }
     
+    console.log('OTP verification successful');
     return true;
   } catch (error) {
-    console.error('Error submitting MFA code:', error);
+    console.error('Error submitting OTP code:', error);
     return false;
   }
 }
 
 /**
- * Order item structure
- */
-export interface OrderItem {
-  name: string;
-  price: string;
-  link: string;
-}
-
-/**
- * Navigate to order history page
+ * Navigate to Amazon order history
  * @param page Playwright page instance
  * @returns Boolean indicating success
  */
 export async function navigateToOrderHistory(page: Page): Promise<boolean> {
   try {
-    console.log('Navigating to order history page...');
-    
-    // Handle potential "personalized content" popup if it appears
-    try {
-      const popupSelector = 'div[id*="personalized-content"] button';
-      const hasPopup = await page.isVisible(popupSelector, { timeout: 3000 });
-      if (hasPopup) {
-        await page.click(popupSelector);
-        await page.waitForTimeout(1000); // Short wait after closing popup
-      }
-    } catch (error) {
-      // Ignore errors with popup handling - it's optional
-      console.warn('No personalization popup found');
-    }
-    
-    // Try multiple possible selectors for the Orders link
-    const orderButtonSelectors = [
-      '#nav-orders',
-      '.nav-a:has-text("Orders")',
-      '[data-nav-ref="nav_youraccount_orders"]',
-      'a:has-text("Returns & Orders")',
-      'a[href*="/gp/css/order-history"]',
-      'a[href*="order-history"]',
-      '#nav-orders-sprite'
-    ];
-    
-    // First check if we're already on the orders page
-    const alreadyOnOrdersPage = await page.isVisible(
-      '.your-orders-content, .order-card, .a-box-group, a:has-text("Buy it again")',
-      { timeout: 2000 }
-    );
-    
-    if (alreadyOnOrdersPage) {
-      console.log('Already on orders page');
-      return true;
-    }
-    
-    // Try each selector until we find a visible one
-    let orderButton = null;
-    for (const selector of orderButtonSelectors) {
-      const isVisible = await page.isVisible(selector, { timeout: 1000 });
-      if (isVisible) {
-        orderButton = selector;
-        break;
-      }
-    }
-    
-    if (!orderButton) {
-      // If we can't find the orders link in the nav, try going to account first
-      console.log('Orders link not found in main nav, trying via account page...');
+    // Look for and click on Orders link
+    const orderButton = await page.$('#nav-orders, a[href*="order-history"]');
+    if (orderButton) {
+      // Click on the orders link if found
+      await orderButton.click();
       
-      const accountButtonSelectors = [
-        '#nav-link-accountList',
-        '#nav-hamburger-menu',
-        'a:has-text("Account")',
-        'a:has-text("Hello, Sign in")'
-      ];
-      
-      // Try each selector until we find a visible one
-      let accountButton = null;
-      for (const selector of accountButtonSelectors) {
-        const isVisible = await page.isVisible(selector, { timeout: 1000 });
-        if (isVisible) {
-          accountButton = selector;
-          break;
-        }
-      }
-      
-      if (accountButton) {
-        await page.click(accountButton);
-        await page.waitForTimeout(2000); // Wait for dropdown/menu
-        
-        // Now look for orders link in the account menu
-        const menuOrderSelectors = [
-          'a:has-text("Your Orders")',
-          'a[href*="order-history"]',
-          'a:has-text("Orders")'
+      // Instead of waiting for navigation, wait for order page content to appear
+      console.log('Waiting for order page elements to appear...');
+      try {
+        // Add selectors matching exactly what we see in the screenshot
+        const orderPageIndicators = [
+          '.your-orders-content',
+          '.order-card',
+          '.a-box-group',
+          'a:has-text("Buy it again")',
+          '#ordersContainer',
+          '#yourOrders',
+          'h1:has-text("Your Orders")',
+          // Add these specific selectors from the screenshot
+          'text=Your Orders',
+          '.shipping-address',
+          'text=Buy Again',
+          'text=Not Yet Shipped',
+          'text=orders placed in',
+          '#orderTypeMenuContainer',
+          '.a-pagination',
+          '.order',
+          '.time-filter-dropdown',
+          '#nav-orders'
         ];
         
-        for (const selector of menuOrderSelectors) {
-          const isVisible = await page.isVisible(selector, { timeout: 1000 });
-          if (isVisible) {
-            await page.click(selector);
+        // Wait longer and check more frequently
+        let orderPageLoaded = false;
+        for (let attempt = 0; attempt < 10 && !orderPageLoaded; attempt++) {
+          console.log(`Order page check attempt ${attempt + 1}...`);
+          
+          // Check the URL first as the most reliable indicator
+          const currentUrl = page.url();
+          if (currentUrl.includes('order-history') || 
+              currentUrl.includes('your-orders') || 
+              currentUrl.includes('gp/css/order-history')) {
+            console.log(`Order page URL detected: ${currentUrl}`);
+            await page.waitForTimeout(3000); // Give page content time to load
+            orderPageLoaded = true;
             break;
           }
+          
+          // Check each selector
+          for (const selector of orderPageIndicators) {
+            try {
+              const isVisible = await page.isVisible(selector, { timeout: 3000 });
+              if (isVisible) {
+                console.log(`Order page loaded, found indicator: ${selector}`);
+                orderPageLoaded = true;
+                break;
+              }
+            } catch (e) {
+              // Continue checking other selectors
+            }
+          }
+          
+          if (!orderPageLoaded) {
+            await page.waitForTimeout(2000); // Wait before next attempt
+          }
         }
-      } else {
-        // Direct navigation as last resort
-        console.log('Using direct URL navigation to orders page...');
-        await page.goto('https://www.amazon.in/gp/css/order-history', { 
-          waitUntil: 'networkidle',
-          timeout: 30000
-        });
+        
+        // Take a screenshot of the current state
+        await page.screenshot({ path: 'order-page-check.png' });
+        
+        if (orderPageLoaded) {
+          return true;
+        }
+        
+        console.error('Timed out waiting for orders page content');
+        return false;
+      } catch (error) {
+        console.error('Error while waiting for orders page:', error);
+        
+        // Take a screenshot to see what's on the page
+        await page.screenshot({ path: 'orders-page-error.png' });
+        
+        // Check if we're on the orders page despite the error
+        const url = page.url();
+        if (url.includes('order-history') || url.includes('your-orders')) {
+          console.log('URL indicates we might be on the orders page, proceeding');
+          return true;
+        }
+        
+        return false;
       }
-    } else {
-      // Click on the orders link if found
-      await page.click(orderButton);
     }
     
-    // Wait for navigation and order page to load
-    await page.waitForNavigation({ 
-      waitUntil: 'networkidle',
+    // Direct navigation as last resort
+    console.log('Using direct URL navigation to orders page...');
+    await page.goto('https://www.amazon.in/gp/css/order-history', { 
+      waitUntil: 'load',
       timeout: 30000
     });
     
-    // Verify we're on the orders page by checking for key elements
-    const orderPageSelectors = [
+    // Wait for any order page elements after direct navigation
+    console.log('Checking for order page elements after direct navigation...');
+    const orderPageIndicators = [
       '.your-orders-content',
       '.order-card',
       '.a-box-group',
@@ -655,16 +490,26 @@ export async function navigateToOrderHistory(page: Page): Promise<boolean> {
       'h1:has-text("Your Orders")'
     ];
     
-    // Check each selector to confirm we're on the orders page
-    for (const selector of orderPageSelectors) {
-      const isVisible = await page.isVisible(selector, { timeout: 2000 });
-      if (isVisible) {
-        console.log('Successfully navigated to orders page');
-        return true;
+    // Look for any order page indicators
+    for (const selector of orderPageIndicators) {
+      try {
+        const isVisible = await page.isVisible(selector, { timeout: 5000 });
+        if (isVisible) {
+          console.log(`Order page loaded after direct navigation, found: ${selector}`);
+          return true;
+        }
+      } catch (error) {
+        // Continue trying other selectors
       }
     }
     
-    console.error('Could not confirm we are on the orders page');
+    // If we got here, check the URL as a last resort
+    const currentUrl = page.url();
+    if (currentUrl.includes('order-history') || currentUrl.includes('your-orders')) {
+      console.log('URL indicates we might be on the orders page, proceeding');
+      return true;
+    }
+    
     return false;
   } catch (error) {
     console.error('Error navigating to order history:', error);
@@ -680,178 +525,30 @@ export async function navigateToOrderHistory(page: Page): Promise<boolean> {
  */
 export async function selectOrderYear(page: Page, year: number): Promise<boolean> {
   try {
-    console.log(`Selecting orders for year: ${year}`);
+    // Amazon uses query parameters or path segments for year filtering
+    await page.goto(`https://www.amazon.in/your-orders/orders?timeFilter=year-${year}`, {
+      waitUntil: 'load',
+      timeout: 30000
+    });
     
-    // First try to find the time filter dropdown - there are multiple possible selectors
-    const dropdownSelectors = [
-      '#time-filter',
-      '.a-dropdown-container',
-      'select[name="timeFilter"]',
-      'span:has-text("Last 30 days")',
-      'span:has-text("past 3 months")',
-      'span:has-text("past orders")',
-      '[id*="dropdown"]',
-      '[id*="timefilter"]',
-      '.time-filter-dropdown',
-      'button:has-text("Last")'
-    ];
+    // Wait for order content after direct navigation
+    console.log('Waiting for order content after direct year navigation...');
+    await page.waitForTimeout(5000);
     
-    // Try each selector to find the dropdown
-    let dropdownSelected = false;
-    for (const selector of dropdownSelectors) {
-      const isVisible = await page.isVisible(selector, { timeout: 2000 });
-      if (isVisible) {
-        await page.click(selector);
-        console.log(`Clicked dropdown with selector: ${selector}`);
-        dropdownSelected = true;
-        
-        // Short wait for dropdown to open
-        await page.waitForTimeout(1000);
-        break;
-      }
-    }
+    // Check if we see any orders
+    const orderElementsVisible = await page.isVisible(
+      '.your-orders-content, .order-card, .a-box-group, div[class*="order"]',
+      { timeout: 8000 }
+    );
     
-    if (!dropdownSelected) {
-      console.error('Could not find time filter dropdown');
-      
-      // Last resort - try to directly navigate to the year's order page
-      try {
-        console.log('Attempting direct navigation to year-specific orders page...');
-        
-        // Amazon uses query parameters or path segments for year filtering
-        await page.goto(`https://www.amazon.in/your-orders/orders?timeFilter=year-${year}`, {
-          waitUntil: 'networkidle',
-          timeout: 30000
-        });
-        
-        // Wait and check if we got any orders
-        const orderElementsVisible = await page.isVisible('.your-orders-content, .order-card, .a-box-group', { timeout: 5000 });
-        if (orderElementsVisible) {
-          console.log(`Successfully accessed ${year} orders via direct URL`);
-          return true;
-        }
-        
-        return false;
-      } catch (directNavError) {
-        console.error('Direct navigation to year-specific orders failed:', directNavError);
-        return false;
-      }
-    }
-    
-    // Now that dropdown is open, look for the year option
-    const yearSelectors = [
-      `a[data-value*="${year}"]`,
-      `.a-dropdown-link:has-text("${year}")`,
-      `li:has-text("${year}")`,
-      `a:has-text("${year}")`,
-      `option[value*="${year}"]`
-    ];
-    
-    // Try each selector to find the year option
-    let yearSelected = false;
-    for (const selector of yearSelectors) {
-      try {
-        const isVisible = await page.isVisible(selector, { timeout: 2000 });
-        if (isVisible) {
-          await page.click(selector);
-          console.log(`Selected year ${year} with selector: ${selector}`);
-          yearSelected = true;
-          break;
-        }
-      } catch (error) {
-        // Continue to next selector
-        console.warn(`Year selector ${selector} not found, trying next...`);
-      }
-    }
-    
-    if (!yearSelected) {
-      // If year not found in dropdown, try alternative methods
-      
-      // Check if there's a date range picker instead
-      const datePickerSelectors = [
-        'input[type="date"]',
-        'input[placeholder*="date"]',
-        'button:has-text("Custom")'
-      ];
-      
-      for (const selector of datePickerSelectors) {
-        const isVisible = await page.isVisible(selector, { timeout: 1000 });
-        if (isVisible) {
-          // Use date range to select the entire year
-          await page.click(selector);
-          
-          // Wait for date picker to appear
-          await page.waitForTimeout(1000);
-          
-          // Try to set start date (Jan 1 of selected year)
-          await page.fill('input[name="startDate"], input[placeholder*="start"]', `01/01/${year}`);
-          
-          // Try to set end date (Dec 31 of selected year)
-          await page.fill('input[name="endDate"], input[placeholder*="end"]', `12/31/${year}`);
-          
-          // Look for apply/submit button
-          await page.click('button:has-text("Apply"), button:has-text("Submit"), button[type="submit"]');
-          
-          // Wait for results to load
-          await page.waitForNavigation({
-            waitUntil: 'networkidle',
-            timeout: 30000
-          });
-          
-          console.log(`Selected date range for year ${year} using date picker`);
-          return true;
-        }
-      }
-      
-      console.error(`Could not select year ${year} from dropdown`);
-      return false;
-    }
-    
-    // Wait for navigation and page to load with new year's orders
-    try {
-      await page.waitForNavigation({
-        waitUntil: 'networkidle',
-        timeout: 30000
-      });
-    } catch (navError) {
-      // Sometimes Amazon doesn't do a full page navigation, just updates content
-      console.warn('Navigation timeout - checking if content updated instead');
-      
-      // Wait a bit longer for potential AJAX updates
-      await page.waitForTimeout(5000);
-      
-      // Check if orders section is visible
-      const ordersVisible = await page.isVisible('.your-orders-content, .order-card, .a-box-group');
-      if (!ordersVisible) {
-        console.error('Could not confirm order content was updated');
-        return false;
-      }
-    }
-    
-    // Confirm year selection was applied
-    try {
-      // Look for indicators that year filter is active
-      const yearIndicators = [
-        `text=${year}`,
-        `.a-dropdown-prompt:has-text("${year}")`,
-        `[aria-label*="${year}"]`,
-        `span:has-text("${year}")`
-      ];
-      
-      for (const indicator of yearIndicators) {
-        const isVisible = await page.isVisible(indicator, { timeout: 2000 });
-        if (isVisible) {
-          console.log(`Confirmed year ${year} is selected`);
-          return true;
-        }
-      }
-      
-      // If we can't confirm, but there's no error, assume it worked
-      console.warn(`Could not confirm year ${year} selection, but proceeding`);
+    if (orderElementsVisible) {
+      console.log(`Successfully accessed ${year} orders via direct URL`);
       return true;
-    } catch (error) {
-      console.error(`Error confirming year ${year} selection:`, error);
-      return false;
+    } else {
+      // Take a screenshot to see what's happening
+      await page.screenshot({ path: `year-direct-navigation-${year}.png` });
+      console.warn(`Direct navigation to ${year} shows no visible orders, but continuing`);
+      return true; // Return true anyway to allow scraping to continue
     }
   } catch (error) {
     console.error(`Error selecting year ${year}:`, error);
@@ -862,39 +559,19 @@ export async function selectOrderYear(page: Page, year: number): Promise<boolean
 /**
  * Extract orders from the current page
  * @param page Playwright page instance
- * @returns Array of order items
+ * @returns Array of OrderItem objects
  */
 export async function extractOrders(page: Page): Promise<OrderItem[]> {
   try {
-    console.log('Extracting orders from current page...');
-    const orders: OrderItem[] = [];
-    
-    // First check if there are any orders on this page
-    const noOrdersSelectors = [
-      'text=No orders',
-      'text=No Order History',
-      'text=You have not placed any orders',
-      '.a-box-inner:has-text("We couldn\'t find")'
-    ];
-    
-    // Check for empty state indicators
-    for (const selector of noOrdersSelectors) {
-      const noOrders = await page.isVisible(selector, { timeout: 2000 });
-      if (noOrders) {
-        console.log('No orders found for this time period');
-        return [];
-      }
-    }
-    
-    // Wait a bit to ensure the page is fully loaded
-    await page.waitForTimeout(2000);
-    
     // Find all order containers on the page
     // Amazon's order page has various layouts - try different selectors
     const orderContainerSelectors = [
+      // Prioritize the specific selector provided by the user
+      '.order-card.js-order-card',
+      // Keep fallbacks in case the page structure changes
+      '.order-card',
       '.order, .a-box-group',
       '.js-order-card',
-      '.order-card',
       '.a-box.shipment',
       '.yo-shipment',
       '.a-fixed-left-grid-inner',
@@ -902,8 +579,10 @@ export async function extractOrders(page: Page): Promise<OrderItem[]> {
       'div[data-testid="yo-order-card"]'
     ];
     
-    // Try each selector to find order elements
+    let orders: OrderItem[] = [];
     let orderElements: any[] = [];
+    
+    // Try each selector to find order elements
     for (const selector of orderContainerSelectors) {
       orderElements = await page.$$(selector);
       if (orderElements.length > 0) {
@@ -912,154 +591,81 @@ export async function extractOrders(page: Page): Promise<OrderItem[]> {
       }
     }
     
-    if (orderElements.length === 0) {
-      console.warn('No order elements found with standard selectors, trying alternative approach');
-      
-      // Alternative approach - look for product name links directly
-      const productLinkSelectors = [
-        '.a-link-normal.a-text-bold[href*="/gp/product/"]',
-        '.a-link-normal[href*="/dp/"]',
-        '.a-link-normal.yohtmlc-product-title',
-        'a[href*="/product/"]',
-        'a.a-link-normal[href*="dp"]'
-      ];
-      
-      for (const selector of productLinkSelectors) {
-        const productLinks = await page.$$(selector);
-        if (productLinks.length > 0) {
-          console.log(`Found ${productLinks.length} product links with selector: ${selector}`);
-          
-          // Extract information directly from product links
-          for (const link of productLinks) {
-            const name = await link.textContent() || 'Unknown Item';
-            const href = await link.getAttribute('href') || '';
-            const fullLink = href.startsWith('http') ? href : `https://www.amazon.in${href}`;
-            
-            // Look for nearby price element - several hops up and down the DOM
-            let price = 'Price not available';
-            try {
-              // First try to find price near the link
-              const parentElement = await link.evaluateHandle(node => node.closest('.a-fixed-right-grid, .a-box, .a-section, .a-row'));
-              if (parentElement) {
-                const priceElement = await parentElement.asElement()?.$(
-                  '.a-color-price, .a-price .a-offscreen, span:has-text("₹"), .order-total, .a-price'
-                );
-                if (priceElement) {
-                  price = await priceElement.textContent() || price;
-                }
-              }
-            } catch (priceError) {
-              console.warn('Error extracting price:', priceError);
-            }
-            
-            orders.push({
-              name: name.trim(),
-              price: price.trim(),
-              link: fullLink
-            });
+    // Process each order element
+    for (const element of orderElements) {
+      try {
+        // Extract order date
+        const dateText = await element.evaluate((el: any) => {
+          const dateElement = el.querySelector('.order-date, .a-color-secondary, [class*="date"]');
+          return dateElement ? dateElement.textContent.trim() : '';
+        }).catch(() => '');
+        
+        // Extract product name using the exact selectors provided
+        const nameText = await element.evaluate((el: any) => {
+          // Try product selectors first
+          const productElement = el.querySelector('.yohtmlc-product-title a');
+          if (productElement) {
+            return productElement.textContent.trim();
           }
           
-          break;
-        }
-      }
-      
-      if (orders.length === 0) {
-        console.error('Could not find any orders or product links');
-        return [];
-      }
-    } else {
-      // Process each order container
-      for (const orderElement of orderElements) {
-        // Try different selectors for product name
-        const nameSelectors = [
-          '.a-link-normal.a-text-bold',
-          '.a-link-normal.yohtmlc-product-title',
-          '.yohtmlc-item .a-link-normal',
-          '.a-link-normal[href*="/dp/"]',
-          '.a-link-normal[href*="/gp/product/"]',
-          '.a-row a.a-link-normal',
-          'a[href*="product-detail"]',
-          '.product-name'
-        ];
-        
-        let name = 'Unknown Item';
-        let link = '';
-        let nameElement = null;
-        
-        // Try each name selector
-        for (const selector of nameSelectors) {
-          nameElement = await orderElement.$(selector);
-          if (nameElement) {
-            name = await nameElement.textContent() || name;
-            link = await nameElement.getAttribute('href') || '';
-            
-            // If name is too long, trim it to a reasonable length
-            if (name.length > 100) {
-              name = name.substring(0, 97) + '...';
-            }
-            
-            break;
+          // Try movie/digital content selectors
+          const movieElement = el.querySelector('.yohtmlc-item a');
+          if (movieElement) {
+            return movieElement.textContent.trim();
           }
-        }
+          
+          // Fallback to other potential selectors
+          const anyLinkElement = el.querySelector('a.a-link-normal');
+          return anyLinkElement ? anyLinkElement.textContent.trim() : '';
+        }).catch(() => '');
         
-        if (!nameElement) {
-          // If we couldn't find a product name, this might be a multi-item order
-          // Look for a "View or edit order" link, which would indicate a multi-item order
-          const viewOrderLink = await orderElement.$('a:has-text("View order"), a:has-text("Order details")');
-          if (viewOrderLink) {
-            name = 'Multiple items - see order details';
-            link = await viewOrderLink.getAttribute('href') || '';
-          } else {
-            // Skip this order if we can't find product info
-            continue;
-          }
-        }
-        
-        // Convert relative link to absolute
-        const fullLink = link.startsWith('http') ? link : `https://www.amazon.in${link}`;
-        
-        // Try different selectors for price
-        const priceSelectors = [
-          '.a-color-price',
-          '.a-price .a-offscreen',
-          '.yohtmlc-price',
-          '.a-span-last',
-          'span:has-text("₹")',
-          '.order-total',
-          '.a-price',
-          '.price'
-        ];
-        
-        let price = 'Price not available';
-        for (const selector of priceSelectors) {
-          const priceElement = await orderElement.$(selector);
+        // Extract price using the exact selector provided
+        const priceText = await element.evaluate((el: any) => {
+          const priceElement = el.querySelector('.a-column.a-span2 .a-size-base');
           if (priceElement) {
-            price = await priceElement.textContent() || price;
-            break;
+            return priceElement.textContent.trim();
           }
+          
+          // Fallback to other price selectors
+          const otherPriceElement = el.querySelector('.a-color-price, .a-price');
+          return otherPriceElement ? otherPriceElement.textContent.trim() : '';
+        }).catch(() => '');
+        
+        // Extract link
+        const linkUrl = await element.evaluate((el: any) => {
+          // Try product link
+          const productLink = el.querySelector('.yohtmlc-product-title a');
+          if (productLink) {
+            return productLink.href;
+          }
+          
+          // Try movie/digital content link
+          const movieLink = el.querySelector('.yohtmlc-item a');
+          if (movieLink) {
+            return movieLink.href;
+          }
+          
+          // Fallback to any product link
+          const anyLink = el.querySelector('a[href*="/dp/"], a[href*="/gp/product/"]');
+          return anyLink ? anyLink.href : '';
+        }).catch(() => '');
+        
+        if (nameText) {
+          orders.push({
+            productName: nameText,
+            price: priceText || 'N/A',
+            orderDate: dateText || 'N/A',
+            link: linkUrl || undefined
+          });
         }
-        
-        // Clean up the price string - keep only the first occurrence of price
-        // Sometimes Amazon includes multiple prices (discount, etc.)
-        price = price.trim();
-        
-        // Check for INR symbol (₹) and make sure it's included
-        if (!price.includes('₹') && price !== 'Price not available') {
-          price = `₹${price}`;
-        }
-        
-        orders.push({
-          name: name.trim(),
-          price: price.trim(),
-          link: fullLink
-        });
+      } catch (error) {
+        console.error('Error processing order element:', error);
       }
     }
     
-    console.log(`Extracted ${orders.length} orders`);
     return orders;
   } catch (error) {
     console.error('Error extracting orders:', error);
     return [];
   }
-} 
+}
