@@ -589,8 +589,8 @@ export async function extractOrders(page: Page): Promise<any[]> {
         
         // Create order object with common data
         const orderEntry: any = {
-          price,
           orderDate,
+          price,
           items: [] // Will hold all items in this order
         };
         
