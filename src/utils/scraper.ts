@@ -561,108 +561,105 @@ export async function selectOrderYear(page: Page, year: number): Promise<boolean
  * @param page Playwright page instance
  * @returns Array of OrderItem objects
  */
-export async function extractOrders(page: Page): Promise<OrderItem[]> {
+export async function extractOrders(page: Page): Promise<any[]> {
   try {
-    // Find all order containers on the page
-    // Amazon's order page has various layouts - try different selectors
-    const orderContainerSelectors = [
-      // Prioritize the specific selector provided by the user
-      '.order-card.js-order-card',
-      // Keep fallbacks in case the page structure changes
-      '.order-card',
-      '.order, .a-box-group',
-      '.js-order-card',
-      '.a-box.shipment',
-      '.yo-shipment',
-      '.a-fixed-left-grid-inner',
-      '.a-section.a-padding-small.a-text-center.order',
-      'div[data-testid="yo-order-card"]'
-    ];
-    
-    let orders: OrderItem[] = [];
-    let orderElements: any[] = [];
-    
-    // Try each selector to find order elements
-    for (const selector of orderContainerSelectors) {
-      orderElements = await page.$$(selector);
-      if (orderElements.length > 0) {
-        console.log(`Found ${orderElements.length} orders with selector: ${selector}`);
-        break;
-      }
-    }
-    
-    // Process each order element
-    for (const element of orderElements) {
-      try {
-        // Extract order date
-        const dateText = await element.evaluate((el: any) => {
-          const dateElement = el.querySelector('.order-date, .a-color-secondary, [class*="date"]');
-          return dateElement ? dateElement.textContent.trim() : '';
-        }).catch(() => '');
+    // Extract orders directly using page.evaluate to handle multiple items per order
+    const orders = await page.evaluate(() => {
+      const result: Array<any> = [];
+      const baseUrl = 'https://www.amazon.in';
+      
+      // Find all order cards
+      const orderCards = Array.from(document.querySelectorAll('.order-card.js-order-card'));
+      
+      orderCards.forEach(orderCard => {
+        // Extract common information for the order
+        const orderGroup = orderCard.querySelector('.a-box-group');
+        if (!orderGroup) return;
         
-        // Extract product name using the exact selectors provided
-        const nameText = await element.evaluate((el: any) => {
-          // Try product selectors first
-          const productElement = el.querySelector('.yohtmlc-product-title a');
-          if (productElement) {
-            return productElement.textContent.trim();
-          }
-          
-          // Try movie/digital content selectors
-          const movieElement = el.querySelector('.yohtmlc-item a');
-          if (movieElement) {
-            return movieElement.textContent.trim();
-          }
-          
-          // Fallback to other potential selectors
-          const anyLinkElement = el.querySelector('a.a-link-normal');
-          return anyLinkElement ? anyLinkElement.textContent.trim() : '';
-        }).catch(() => '');
+        // Extract price - same for all items in the order
+        const priceElement = orderGroup.querySelector('.a-column.a-span2 .a-size-base');
+        const price = priceElement && priceElement.textContent ? priceElement.textContent.trim() : 'N/A';
         
-        // Extract price using the exact selector provided
-        const priceText = await element.evaluate((el: any) => {
-          const priceElement = el.querySelector('.a-column.a-span2 .a-size-base');
-          if (priceElement) {
-            return priceElement.textContent.trim();
-          }
-          
-          // Fallback to other price selectors
-          const otherPriceElement = el.querySelector('.a-color-price, .a-price');
-          return otherPriceElement ? otherPriceElement.textContent.trim() : '';
-        }).catch(() => '');
+        // Extract the actual date using the correct selector
+        const dateElement = orderGroup.querySelector('.a-column.a-span3 .a-size-base');
+        const orderDate = dateElement && dateElement.textContent ? dateElement.textContent.trim() : 'N/A';
         
-        // Extract link
-        const linkUrl = await element.evaluate((el: any) => {
-          // Try product link
-          const productLink = el.querySelector('.yohtmlc-product-title a');
-          if (productLink) {
-            return productLink.href;
-          }
-          
-          // Try movie/digital content link
-          const movieLink = el.querySelector('.yohtmlc-item a');
-          if (movieLink) {
-            return movieLink.href;
-          }
-          
-          // Fallback to any product link
-          const anyLink = el.querySelector('a[href*="/dp/"], a[href*="/gp/product/"]');
-          return anyLink ? anyLink.href : '';
-        }).catch(() => '');
+        // Check for multiple delivery boxes (multiple items in one order)
+        const deliveryBoxes = orderGroup.querySelectorAll('.a-box.delivery-box');
         
-        if (nameText) {
-          orders.push({
-            productName: nameText,
-            price: priceText || 'N/A',
-            orderDate: dateText || 'N/A',
-            link: linkUrl || undefined
+        // Create order object with common data
+        const orderEntry: any = {
+          price,
+          orderDate,
+          items: [] // Will hold all items in this order
+        };
+        
+        if (deliveryBoxes.length > 0) {
+          // Multiple items case: iterate through each delivery box
+          deliveryBoxes.forEach(box => {
+            // Try to extract product info
+            let productName = '';
+            let link = '';
+            
+            // Try for regular product
+            const productElement = box.querySelector('.yohtmlc-product-title a');
+            if (productElement && productElement.textContent) {
+              productName = productElement.textContent.trim();
+              let href = productElement.getAttribute('href') || '';
+              // Make link absolute
+              link = href.startsWith('http') ? href : `${baseUrl}${href}`;
+            }
+            
+            // Only add if we found a product name
+            if (productName) {
+              orderEntry.items.push({
+                productName,
+                link
+              });
+            }
           });
+        } else {
+          // Single item case or movie/digital content
+          let productName = '';
+          let link = '';
+          
+          // Try for regular product first
+          const productElement = orderGroup.querySelector('.yohtmlc-product-title a');
+          if (productElement && productElement.textContent) {
+            productName = productElement.textContent.trim();
+            let href = productElement.getAttribute('href') || '';
+            // Make link absolute
+            link = href.startsWith('http') ? href : `${baseUrl}${href}`;
+          } else {
+            // Try for movie/digital content
+            const movieElement = orderGroup.querySelector('.yohtmlc-item a');
+            if (movieElement && movieElement.textContent) {
+              productName = movieElement.textContent.trim();
+              let href = movieElement.getAttribute('href') || '';
+              // Make link absolute
+              link = href.startsWith('http') ? href : `${baseUrl}${href}`;
+            }
+          }
+          
+          // Only add if we found a product name
+          if (productName) {
+            orderEntry.items.push({
+              productName,
+              link
+            });
+          }
         }
-      } catch (error) {
-        console.error('Error processing order element:', error);
-      }
-    }
+        
+        // Only add orders that have items
+        if (orderEntry.items.length > 0) {
+          result.push(orderEntry);
+        }
+      });
+      
+      return result;
+    });
     
+    console.log(`Extracted ${orders.length} orders with a total of ${orders.reduce((sum, order) => sum + order.items.length, 0)} items`);
     return orders;
   } catch (error) {
     console.error('Error extracting orders:', error);
