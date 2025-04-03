@@ -204,10 +204,24 @@ export async function isMFARequired(page: Page): Promise<boolean> {
     // Take a screenshot to help debug
     await page.screenshot({ path: 'possible-otp-page.png' });
     
-    // Check if we're on the OTP page by URL pattern
+    // Primary check: Look for /ap/mfa in the URL (most reliable indicator)
+    if (currentUrl.includes('/ap/mfa')) {
+      console.log('OTP requirement detected: Found /ap/mfa in URL');
+      return true;
+    }
+    
+    // Secondary check: Look for Two-Step Verification in title or heading
+    const pageTitle = await page.title();
+    const hasVerificationTitle = pageTitle.includes('Verification') || pageTitle.includes('OTP');
+    if (hasVerificationTitle) {
+      console.log(`OTP requirement detected: Page title indicates verification: "${pageTitle}"`);
+      return true;
+    }
+    
+    // Fallback check: Check if we're on the OTP page by older URL pattern
     if (currentUrl.includes('/ap/signin') && 
         currentUrl.includes('openid.pape.max_auth_age=0')) {
-      console.log('Potential OTP page detected by URL pattern');
+      console.log('Potential OTP page detected by older URL pattern - checking page elements');
       
       // Look for OTP input field or MFA-related text
       const mfaSelectors = [
@@ -280,10 +294,12 @@ export async function submitMFACode(page: Page, otpCode: string): Promise<boolea
     const currentUrl = page.url();
     console.log(`Submitting OTP on page: ${currentUrl}`);
     
-    // Check for Amazon's specific OTP URL pattern
-    if (currentUrl.includes('/ap/signin') && 
+    // Check for Amazon's specific OTP URL patterns
+    if (currentUrl.includes('/ap/mfa')) {
+      console.log('Detected Amazon MFA page (/ap/mfa)');
+    } else if (currentUrl.includes('/ap/signin') && 
         currentUrl.includes('openid.pape.max_auth_age=0')) {
-      console.log('Detected Amazon signin OTP page');
+      console.log('Detected Amazon signin OTP page (older pattern)');
     }
     
     // Try different possible OTP input fields
