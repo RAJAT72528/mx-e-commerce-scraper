@@ -1,11 +1,24 @@
 import { Page, Browser } from 'playwright';
 
+// Define a custom error class for scraper-specific errors
+export class ScraperError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ScraperError';
+  }
+}
+
 // Define the OrderItem interface
 export interface OrderItem {
   productName: string;
-  price: string;
-  orderDate: string;
   link?: string;
+}
+
+// Define the Order interface for the nested structure
+export interface Order {
+  orderDate: string;
+  price: string;
+  items: OrderItem[];
 }
 
 /**
@@ -559,13 +572,13 @@ export async function selectOrderYear(page: Page, year: number): Promise<boolean
 /**
  * Extract orders from the current page
  * @param page Playwright page instance
- * @returns Array of OrderItem objects
+ * @returns Array of Order objects
  */
-export async function extractOrders(page: Page): Promise<any[]> {
+export async function extractOrders(page: Page): Promise<Order[]> {
   try {
     // Extract orders directly using page.evaluate to handle multiple items per order
     const orders = await page.evaluate(() => {
-      const result: Array<any> = [];
+      const result: Array<Order> = [];
       const baseUrl = 'https://www.amazon.in';
       
       // Find all order cards
@@ -588,7 +601,7 @@ export async function extractOrders(page: Page): Promise<any[]> {
         const deliveryBoxes = orderGroup.querySelectorAll('.a-box.delivery-box');
         
         // Create order object with common data
-        const orderEntry: any = {
+        const orderEntry: Order = {
           orderDate,
           price,
           items: [] // Will hold all items in this order
@@ -615,7 +628,7 @@ export async function extractOrders(page: Page): Promise<any[]> {
               orderEntry.items.push({
                 productName,
                 link
-              });
+              } as OrderItem);
             }
           });
         } else {
@@ -646,7 +659,7 @@ export async function extractOrders(page: Page): Promise<any[]> {
             orderEntry.items.push({
               productName,
               link
-            });
+            } as OrderItem);
           }
         }
         

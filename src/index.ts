@@ -14,7 +14,9 @@ import {
   navigateToOrderHistory,
   selectOrderYear,
   extractOrders,
-  OrderItem
+  OrderItem,
+  Order,
+  ScraperError
 } from './utils/scraper';
 
 async function promptForCredentials(attemptsLeft = 5): Promise<{ username: string; password: string } | null> {
@@ -236,7 +238,7 @@ async function handleLogin(): Promise<{ success: boolean; page: any } | null> {
   }
 }
 
-async function scrapeOrders(page: any): Promise<OrderItem[]> {
+async function scrapeOrders(page: any): Promise<Order[]> {
   // Navigate to order history
   console.log('Navigating to order history page...');
   const navigatedToOrderHistory = await navigateToOrderHistory(page);
@@ -269,7 +271,7 @@ async function scrapeOrders(page: any): Promise<OrderItem[]> {
     return [];
   }
   
-  const ordersCollected: OrderItem[] = [];
+  const ordersCollected: Order[] = [];
   const currentYear = new Date().getFullYear();
   let yearsScraped = 0;
   
